@@ -16,7 +16,7 @@ import { celsiusToFahrenheit } from '@/src/utils/format';
 
 export default function WeatherScreen() {
   const { colors, fonts } = useAppTheme();
-  const { point } = useLocationContext();
+  const { point, placeLine, placeLoading } = useLocationContext();
   const units = useSettingsStore((s) => s.units);
   const data = useWeatherStore((s) => s.data);
   const loading = useWeatherStore((s) => s.loading);
@@ -49,9 +49,13 @@ export default function WeatherScreen() {
       <BrandHeader
         title="Weather"
         subtitle={
-          data
-            ? `Updated ${new Date(data.fetchedAt).toLocaleTimeString()}`
-            : 'Conditions at your position'
+          placeLine
+            ? placeLine
+            : placeLoading
+              ? 'Resolving place…'
+              : data
+                ? `Updated ${new Date(data.fetchedAt).toLocaleTimeString()}`
+                : 'Conditions at your position'
         }
       />
 

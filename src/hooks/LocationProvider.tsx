@@ -7,13 +7,14 @@ import {
 import { AppState } from 'react-native';
 
 import { useLiveLocation, type GpsQuality } from '@/src/hooks/useLiveLocation';
+import { usePlaceName } from '@/src/hooks/usePlaceName';
 import { useWeatherSync } from '@/src/hooks/useWeather';
 import {
   dispatchLocationToTrip,
   startBackgroundUpdates,
 } from '@/src/services/locationTask';
 import { useTripStore } from '@/src/store/tripStore';
-import type { GeoPoint } from '@/src/types';
+import type { GeoPoint, PlaceInfo } from '@/src/types';
 
 interface LocationContextValue {
   point: GeoPoint | null;
@@ -23,12 +24,18 @@ interface LocationContextValue {
   error: string | null;
   permissionGranted: boolean | null;
   requestPermission: () => Promise<boolean>;
+  place: PlaceInfo | null;
+  placeLine: string | null;
+  placePrimary: string | null;
+  placeSecondary: string | null;
+  placeLoading: boolean;
 }
 
 const LocationContext = createContext<LocationContextValue | null>(null);
 
 export function LocationProvider({ children }: { children: ReactNode }) {
   const live = useLiveLocation(true);
+  const placeState = usePlaceName(live.point);
   const tripStatus = useTripStore((s) => s.status);
   const hydrated = useTripStore((s) => s.hydrated);
 
@@ -56,8 +63,17 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     return () => sub.remove();
   }, [hydrated, tripStatus]);
 
+  const value: LocationContextValue = {
+    ...live,
+    place: placeState.place,
+    placeLine: placeState.line,
+    placePrimary: placeState.primary,
+    placeSecondary: placeState.secondary,
+    placeLoading: placeState.loading,
+  };
+
   return (
-    <LocationContext.Provider value={live}>{children}</LocationContext.Provider>
+    <LocationContext.Provider value={value}>{children}</LocationContext.Provider>
   );
 }
 

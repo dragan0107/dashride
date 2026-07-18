@@ -92,8 +92,6 @@ export function CameraGroup({ group, expanded, onToggle }: Props) {
       </Pressable>
 
       {expanded ? (
-        // No opacity fade around VideoView — animating video surfaces causes
-        // intermittent green flashes on Android (ExoPlayer / SurfaceView).
         <View style={styles.streams}>
           {group.streams.map((stream) => (
             <StreamPlayer key={stream.id} stream={stream} />

@@ -13,6 +13,21 @@ export interface GeoPoint {
   timestamp: number;
 }
 
+/** Human-readable place from reverse geocoding. */
+export interface PlaceInfo {
+  name: string | null;
+  street: string | null;
+  streetNumber: string | null;
+  city: string | null;
+  district: string | null;
+  subregion: string | null;
+  region: string | null;
+  country: string | null;
+  isoCountryCode: string | null;
+  postalCode: string | null;
+  formattedAddress: string | null;
+}
+
 export interface TripSnapshot {
   status: TripStatus;
   distanceMeters: number;

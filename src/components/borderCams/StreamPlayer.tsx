@@ -1,7 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEvent } from 'expo';
-import { useVideoPlayer, VideoView } from 'expo-video';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 
 import type { BorderCamStream } from '@/src/data/borderCams';
 import { useAppTheme } from '@/src/theme/ThemeProvider';
@@ -17,42 +16,125 @@ interface Props {
   stream: BorderCamStream;
 }
 
-function hlsSource(uri: string) {
-  return { uri, contentType: 'hls' as const };
+/**
+ * HLS via WebView + hls.js (same path as the proven LiveStream screen).
+ * Native expo-video/ExoPlayer flashes green frames on MUP hardware streams;
+ * Chromium's software decode path does not.
+ */
+function createVideoHtml(videoUrl: string): string {
+  const safeUrl = JSON.stringify(videoUrl);
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+  </style>
+</head>
+<body>
+  <video
+    id="v"
+    autoplay
+    muted
+    controls
+    playsinline
+    webkit-playsinline
+    x5-playsinline
+    x5-video-player-type="h5"
+    preload="auto"
+  ></video>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.17/dist/hls.min.js"></script>
+  <script>
+    (function () {
+      var url = ${safeUrl};
+      var video = document.getElementById('v');
+      function notify(type, message) {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: type, message: message || '' }));
+        }
+      }
+      function playSafe() {
+        video.play().catch(function () {});
+      }
+      if (window.Hls && Hls.isSupported()) {
+        var hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          backBufferLength: 30,
+        });
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+          notify('ready');
+          playSafe();
+        });
+        hls.on(Hls.Events.ERROR, function (_e, data) {
+          if (data && data.fatal) {
+            notify('error', data.type || 'hls');
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+        video.addEventListener('loadedmetadata', function () {
+          notify('ready');
+          playSafe();
+        });
+        video.addEventListener('error', function () {
+          notify('error', 'native');
+        });
+      } else {
+        notify('error', 'unsupported');
+      }
+    })();
+  </script>
+</body>
+</html>`;
 }
 
 export function StreamPlayer({ stream }: Props) {
   const { colors, fonts } = useAppTheme();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const player = useVideoPlayer(hlsSource(stream.url), (p) => {
-    p.muted = true;
-    p.loop = false;
-    p.play();
-  });
-
-  useEffect(() => {
-    return () => {
-      try {
-        player.pause();
-      } catch {
-        // player may already be released
-      }
-    };
-  }, [player]);
-
-  const { status, error } = useEvent(player, 'statusChange', {
-    status: player.status,
-  });
-
-  const isLoading = status === 'loading' || status === 'idle';
-  const hasError = status === 'error';
+  const html = useMemo(() => createVideoHtml(stream.url), [stream.url]);
 
   const retry = useCallback(() => {
-    void player.replaceAsync(hlsSource(stream.url)).then(() => {
-      player.muted = true;
-      player.play();
-    });
-  }, [player, stream.url]);
+    setLoading(true);
+    setError(null);
+    setReloadKey((k) => k + 1);
+  }, []);
+
+  const onMessage = useCallback((event: { nativeEvent: { data: string } }) => {
+    try {
+      const payload = JSON.parse(event.nativeEvent.data) as {
+        type?: string;
+        message?: string;
+      };
+      if (payload.type === 'ready') {
+        setLoading(false);
+        setError(null);
+      } else if (payload.type === 'error') {
+        setLoading(false);
+        setError(payload.message || 'Stream error');
+      }
+    } catch {
+      // ignore malformed messages
+    }
+  }, []);
 
   return (
     <View style={styles.wrap}>
@@ -71,19 +153,33 @@ export function StreamPlayer({ stream }: Props) {
           stream.tall ? styles.cardTall : null,
           { backgroundColor: '#000', borderColor: colors.border },
         ]}>
-        {/*
-          Use default surfaceView on Android — textureView + live HLS often
-          flashes solid green frames during decoder keyframe gaps.
-        */}
-        <VideoView
+        <WebView
+          key={`${stream.id}-${reloadKey}`}
           style={styles.video}
-          player={player}
-          contentFit="contain"
-          nativeControls
-          fullscreenOptions={{ enable: true }}
+          originWhitelist={['*']}
+          source={{ html }}
+          onLoadStart={() => {
+            setLoading(true);
+            setError(null);
+          }}
+          onError={() => {
+            setLoading(false);
+            setError('Failed to load player');
+          }}
+          onMessage={onMessage}
+          allowsInlineMediaPlayback
+          mediaPlaybackRequiresUserAction={false}
+          javaScriptEnabled
+          domStorageEnabled
+          allowsFullscreenVideo
+          mixedContentMode="compatibility"
+          cacheEnabled={false}
+          scrollEnabled={false}
+          bounces={false}
+          setSupportMultipleWindows={false}
         />
 
-        {isLoading && !hasError ? (
+        {loading && !error ? (
           <View style={[styles.overlay, { backgroundColor: colors.overlay }]}>
             <ActivityIndicator size="large" color={colors.accent} />
             <Text
@@ -96,7 +192,7 @@ export function StreamPlayer({ stream }: Props) {
           </View>
         ) : null}
 
-        {hasError ? (
+        {error ? (
           <View
             style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.92)' }]}>
             <Ionicons
@@ -111,16 +207,6 @@ export function StreamPlayer({ stream }: Props) {
               ]}>
               Stream unavailable
             </Text>
-            {error?.message ? (
-              <Text
-                style={[
-                  styles.errorDetail,
-                  { color: colors.textSecondary, fontFamily: fonts.body },
-                ]}
-                numberOfLines={2}>
-                {error.message}
-              </Text>
-            ) : null}
             <Pressable
               onPress={retry}
               style={({ pressed }) => [
@@ -167,6 +253,7 @@ const styles = StyleSheet.create({
   video: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#000',
   },
   overlay: {
     ...StyleSheet.absoluteFill,
@@ -177,10 +264,6 @@ const styles = StyleSheet.create({
   },
   overlayText: {
     fontSize: 15,
-  },
-  errorDetail: {
-    fontSize: 12,
-    textAlign: 'center',
   },
   retryBtn: {
     marginTop: 6,

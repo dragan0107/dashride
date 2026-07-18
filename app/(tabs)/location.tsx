@@ -17,8 +17,19 @@ import {
 
 export default function LocationScreen() {
   const { colors, fonts } = useAppTheme();
-  const { point, heading, quality, error, permissionGranted, requestPermission } =
-    useLocationContext();
+  const {
+    point,
+    heading,
+    quality,
+    error,
+    permissionGranted,
+    requestPermission,
+    place,
+    placePrimary,
+    placeSecondary,
+    placeLine,
+    placeLoading,
+  } = useLocationContext();
   const units = useSettingsStore((s) => s.units);
 
   const speed = formatSpeed(point?.speed, units);
@@ -35,28 +46,67 @@ export default function LocationScreen() {
             ? 'Denied'
             : 'Error';
 
+  const subtitle =
+    permissionGranted === false
+      ? 'Permission required'
+      : error
+        ? error
+        : placeLine
+          ? placeLine
+          : placeLoading
+            ? 'Resolving place…'
+            : `Signal: ${qualityLabel}`;
+
   async function copyCoords() {
     if (!point) return;
-    const text = `${formatCoord(point.latitude)}, ${formatCoord(point.longitude)}`;
+    const text = placeLine
+      ? `${placeLine}\n${formatCoord(point.latitude)}, ${formatCoord(point.longitude)}`
+      : `${formatCoord(point.latitude)}, ${formatCoord(point.longitude)}`;
     await Clipboard.setStringAsync(text);
     await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }
 
+  const street =
+    place == null
+      ? null
+      : [place.streetNumber, place.street].filter(Boolean).join(' ') || null;
+
   return (
     <Screen>
-      <BrandHeader
-        title="Location"
-        subtitle={
-          permissionGranted === false
-            ? 'Permission required'
-            : error ?? `Signal: ${qualityLabel}`
-        }
-      />
+      <BrandHeader title="Location" subtitle={subtitle} />
 
       {permissionGranted === false ? (
         <Button label="Grant location access" onPress={() => requestPermission()} />
       ) : (
         <View>
+          {placePrimary || placeLoading ? (
+            <View style={styles.placeHero}>
+              <Text
+                style={[
+                  styles.placePrimary,
+                  { color: colors.text, fontFamily: fonts.display },
+                ]}>
+                {placePrimary ?? (placeLoading ? '…' : '—')}
+              </Text>
+              {placeSecondary ? (
+                <Text
+                  style={[
+                    styles.placeSecondary,
+                    {
+                      color: colors.textSecondary,
+                      fontFamily: fonts.bodyMedium,
+                    },
+                  ]}>
+                  {placeSecondary}
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
+          <StatRow label="Place" value={placePrimary ?? (placeLoading ? '…' : '—')} />
+          <StatRow label="Street" value={street ?? '—'} />
+          <StatRow label="Region" value={place?.region ?? '—'} />
+          <StatRow label="Country" value={place?.country ?? '—'} />
           <StatRow
             label="Latitude"
             value={point ? formatCoord(point.latitude) : '—'}
@@ -102,7 +152,7 @@ export default function LocationScreen() {
 
           <View style={styles.actions}>
             <Button
-              label="Copy coordinates"
+              label="Copy location"
               onPress={copyCoords}
               variant="secondary"
               disabled={!point}
@@ -126,6 +176,18 @@ export default function LocationScreen() {
 }
 
 const styles = StyleSheet.create({
+  placeHero: {
+    marginBottom: 16,
+    gap: 4,
+  },
+  placePrimary: {
+    fontSize: 32,
+    letterSpacing: -0.5,
+  },
+  placeSecondary: {
+    fontSize: 15,
+    letterSpacing: 0.2,
+  },
   actions: {
     marginTop: 20,
   },

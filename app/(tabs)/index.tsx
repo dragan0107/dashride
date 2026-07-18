@@ -23,6 +23,7 @@ export default function DriveScreen() {
     error,
     permissionGranted,
     requestPermission,
+    placeLine,
   } = useLocationContext();
   const units = useSettingsStore((s) => s.units);
   const keepAwake = useSettingsStore((s) => s.keepAwakeOnDrive);
@@ -48,7 +49,7 @@ export default function DriveScreen() {
         : quality === 'weak'
           ? 'GPS weak — accuracy limited'
           : quality === 'good'
-            ? 'GPS locked'
+            ? (placeLine ?? 'GPS locked')
             : error ?? 'GPS unavailable';
 
   return (
