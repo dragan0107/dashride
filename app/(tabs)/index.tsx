@@ -8,6 +8,7 @@ import { Speedometer } from '@/src/components/gauges/Speedometer';
 import { BrandHeader } from '@/src/components/BrandHeader';
 import { SatelliteBadge } from '@/src/components/SatelliteBadge';
 import { Screen } from '@/src/components/Screen';
+import { TripOverlay } from '@/src/components/TripOverlay';
 import { useLocationContext } from '@/src/hooks/LocationProvider';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { useAppTheme } from '@/src/theme/ThemeProvider';
@@ -80,6 +81,8 @@ export default function DriveScreen() {
           </Text>
         </View>
       ) : null}
+
+      <TripOverlay />
 
       <View style={styles.gauge}>
         <Speedometer speed={speed.value} unitLabel={speed.label} />
