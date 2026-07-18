@@ -61,50 +61,56 @@ export function useLiveLocation(enabled = true) {
     let magSub: { remove: () => void } | null = null;
 
     async function start() {
-      const ok = await requestPermission();
-      if (!ok || cancelled) return;
-
-      watchSub = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 1000,
-          distanceInterval: 1,
-        },
-        (loc) => {
-          const geo = locationObjectToGeoPoint(loc);
-          setPoint(geo);
-          setQuality(qualityFromAccuracy(geo.accuracy));
-          setSatellites(estimateSatelliteCount(geo.accuracy));
-          setError(null);
-          if (geo.heading != null) {
-            hasCourseHeading.current = true;
-            setHeading(geo.heading);
-          }
-        },
-      );
-
       try {
-        headingSub = await Location.watchHeadingAsync((h) => {
-          if (h.trueHeading >= 0) {
-            hasCourseHeading.current = true;
-            setHeading(h.trueHeading);
-          } else if (h.magHeading >= 0) {
-            hasCourseHeading.current = true;
-            setHeading(h.magHeading);
-          }
-        });
-      } catch {
-        // fall through to magnetometer
-      }
+        const ok = await requestPermission();
+        if (!ok || cancelled) return;
 
-      try {
-        Magnetometer.setUpdateInterval(250);
-        magSub = Magnetometer.addListener(({ x, y }) => {
-          if (hasCourseHeading.current) return;
-          setHeading(magnetometerToHeading(x, y));
-        });
-      } catch {
-        // Magnetometer unavailable on this device
+        watchSub = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: 1000,
+            distanceInterval: 1,
+          },
+          (loc) => {
+            const geo = locationObjectToGeoPoint(loc);
+            setPoint(geo);
+            setQuality(qualityFromAccuracy(geo.accuracy));
+            setSatellites(estimateSatelliteCount(geo.accuracy));
+            setError(null);
+            if (geo.heading != null) {
+              hasCourseHeading.current = true;
+              setHeading(geo.heading);
+            }
+          },
+        );
+
+        try {
+          headingSub = await Location.watchHeadingAsync((h) => {
+            if (h.trueHeading >= 0) {
+              hasCourseHeading.current = true;
+              setHeading(h.trueHeading);
+            } else if (h.magHeading >= 0) {
+              hasCourseHeading.current = true;
+              setHeading(h.magHeading);
+            }
+          });
+        } catch {
+          // fall through to magnetometer
+        }
+
+        try {
+          Magnetometer.setUpdateInterval(250);
+          magSub = Magnetometer.addListener(({ x, y }) => {
+            if (hasCourseHeading.current) return;
+            setHeading(magnetometerToHeading(x, y));
+          });
+        } catch {
+          // Magnetometer unavailable on this device
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setQuality('error');
+        setError(e instanceof Error ? e.message : 'Location error');
       }
     }
 

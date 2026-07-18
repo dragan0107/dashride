@@ -1,5 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { useCallback, useEffect } from 'react';
+import { AppState } from 'react-native';
 
 import {
   startBackgroundUpdates,
@@ -13,6 +14,7 @@ import {
 
 export function useTripActions() {
   const status = useTripStore((s) => s.status);
+  const hydrated = useTripStore((s) => s.hydrated);
   const distanceMeters = useTripStore((s) => s.distanceMeters);
   const maxSpeedMps = useTripStore((s) => s.maxSpeedMps);
   const startedAt = useTripStore((s) => s.startedAt);
@@ -76,12 +78,14 @@ export function useTripActions() {
     }
   }, [resetTrip]);
 
-  // Resume background tracking if app relaunched with active trip
+  // Resume background tracking only when hydrated + app is foregrounded.
+  // Starting an Android FGS from the background crashes the process.
   useEffect(() => {
-    if (status === 'active') {
-      startBackgroundUpdates().catch(() => undefined);
-    }
-  }, [status]);
+    if (!hydrated || status !== 'active') return;
+    if (AppState.currentState !== 'active') return;
+
+    startBackgroundUpdates().catch(() => undefined);
+  }, [status, hydrated]);
 
   const snapshot = {
     status,

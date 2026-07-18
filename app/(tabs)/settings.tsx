@@ -1,5 +1,6 @@
 import * as Linking from 'expo-linking';
-import { Platform, StyleSheet, Switch, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Alert, Platform, StyleSheet, Switch, Text, View } from 'react-native';
 
 import { BrandHeader } from '@/src/components/BrandHeader';
 import { Screen } from '@/src/components/Screen';
@@ -51,10 +52,64 @@ export default function SettingsScreen() {
   const setWeatherRefreshMinutes = useSettingsStore(
     (s) => s.setWeatherRefreshMinutes,
   );
+  const [permissionBusy, setPermissionBusy] = useState(false);
 
   const themes: ThemePreference[] = ['system', 'dark', 'night'];
   const unitOptions: Units[] = ['metric', 'imperial'];
   const intervals = [10, 15, 30];
+
+  const onRequestForeground = useCallback(async () => {
+    if (permissionBusy) return;
+    setPermissionBusy(true);
+    try {
+      const ok = await requestForegroundPermission();
+      Alert.alert(
+        ok ? 'Location allowed' : 'Location denied',
+        ok
+          ? 'DashRide can use your location while the app is open.'
+          : 'Enable location access in system settings to use gauges and trips.',
+      );
+    } finally {
+      setPermissionBusy(false);
+    }
+  }, [permissionBusy]);
+
+  const onRequestBackground = useCallback(async () => {
+    if (permissionBusy) return;
+
+    const proceed = async () => {
+      setPermissionBusy(true);
+      try {
+        const ok = await requestBackgroundPermission();
+        // On Android 11+, the OS often kills the process when returning from
+        // settings — this alert may never show; that's expected.
+        Alert.alert(
+          ok ? 'Background location allowed' : 'Background location not set',
+          ok
+            ? 'DashRide can track trip distance with the screen off.'
+            : Platform.OS === 'android'
+              ? 'In system settings, choose “Allow all the time” for DashRide, then reopen the app.'
+              : 'Choose “Always” for DashRide in system settings, then reopen the app.',
+        );
+      } finally {
+        setPermissionBusy(false);
+      }
+    };
+
+    if (Platform.OS === 'android') {
+      Alert.alert(
+        'Allow all the time',
+        'Android will open location settings. Choose “Allow all the time”, then return to DashRide. The app may restart — that is normal.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Continue', onPress: () => void proceed() },
+        ],
+      );
+      return;
+    }
+
+    await proceed();
+  }, [permissionBusy]);
 
   return (
     <Screen>
@@ -150,12 +205,12 @@ export default function SettingsScreen() {
         <Button
           label="Request location (when in use)"
           variant="secondary"
-          onPress={() => requestForegroundPermission()}
+          onPress={() => void onRequestForeground()}
         />
         <Button
           label="Request always / background location"
           variant="secondary"
-          onPress={() => requestBackgroundPermission()}
+          onPress={() => void onRequestBackground()}
         />
         <Button
           label="Open system settings"
@@ -170,7 +225,7 @@ export default function SettingsScreen() {
           { color: colors.textSecondary, fontFamily: fonts.body },
         ]}>
         {Platform.OS === 'android'
-          ? 'For continuous trip tracking, allow “Allow all the time” location access and disable battery optimization for DashRide in system settings.'
+          ? 'For continuous trip tracking, allow “Allow all the time” location access and disable battery optimization for DashRide in system settings. The app may restart after changing location permission — that is normal Android behavior.'
           : 'For continuous trip tracking, choose “Always” location access when prompted so DashRide can measure distance with the screen off.'}
       </Text>
     </Screen>

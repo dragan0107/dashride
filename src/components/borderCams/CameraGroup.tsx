@@ -4,8 +4,6 @@ import { useEffect } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
   Easing,
-  FadeIn,
-  FadeOut,
   interpolate,
   interpolateColor,
   useAnimatedStyle,
@@ -94,14 +92,13 @@ export function CameraGroup({ group, expanded, onToggle }: Props) {
       </Pressable>
 
       {expanded ? (
-        <Animated.View
-          entering={FadeIn.duration(180).easing(Easing.out(Easing.quad))}
-          exiting={FadeOut.duration(120).easing(Easing.in(Easing.quad))}
-          style={styles.streams}>
+        // No opacity fade around VideoView — animating video surfaces causes
+        // intermittent green flashes on Android (ExoPlayer / SurfaceView).
+        <View style={styles.streams}>
           {group.streams.map((stream) => (
             <StreamPlayer key={stream.id} stream={stream} />
           ))}
-        </Animated.View>
+        </View>
       ) : null}
     </View>
   );

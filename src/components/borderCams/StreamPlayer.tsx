@@ -1,10 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useEvent } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 import {
   ActivityIndicator,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -27,8 +26,19 @@ export function StreamPlayer({ stream }: Props) {
 
   const player = useVideoPlayer(hlsSource(stream.url), (p) => {
     p.muted = true;
+    p.loop = false;
     p.play();
   });
+
+  useEffect(() => {
+    return () => {
+      try {
+        player.pause();
+      } catch {
+        // player may already be released
+      }
+    };
+  }, [player]);
 
   const { status, error } = useEvent(player, 'statusChange', {
     status: player.status,
@@ -61,15 +71,16 @@ export function StreamPlayer({ stream }: Props) {
           stream.tall ? styles.cardTall : null,
           { backgroundColor: '#000', borderColor: colors.border },
         ]}>
+        {/*
+          Use default surfaceView on Android — textureView + live HLS often
+          flashes solid green frames during decoder keyframe gaps.
+        */}
         <VideoView
           style={styles.video}
           player={player}
           contentFit="contain"
           nativeControls
           fullscreenOptions={{ enable: true }}
-          {...(Platform.OS === 'android'
-            ? { surfaceType: 'textureView' as const }
-            : null)}
         />
 
         {isLoading && !hasError ? (

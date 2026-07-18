@@ -11,10 +11,13 @@ import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 
 import { LocationProvider } from '@/src/hooks/LocationProvider';
+import {
+  recoverOrphanedLocationUpdates,
+} from '@/src/services/locationTask';
 import { AppThemeProvider, useAppTheme } from '@/src/theme/ThemeProvider';
 
 // Register background location task as early as possible
@@ -36,18 +39,28 @@ export default function RootLayout() {
     DMSans_500Medium,
     DMSans_700Bold,
   });
+  const [locationReady, setLocationReady] = useState(false);
 
   useEffect(() => {
     if (error) throw error;
   }, [error]);
 
   useEffect(() => {
-    if (loaded) {
+    if (!loaded) return;
+    let cancelled = false;
+    // Clear stale FGS location tasks before UI mounts — prevents native
+    // crash loops after Android kills the app on permission changes.
+    void recoverOrphanedLocationUpdates().finally(() => {
+      if (cancelled) return;
+      setLocationReady(true);
       SplashScreen.hideAsync();
-    }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [loaded]);
 
-  if (!loaded) {
+  if (!loaded || !locationReady) {
     return null;
   }
 
