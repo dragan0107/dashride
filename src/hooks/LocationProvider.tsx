@@ -47,18 +47,23 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     }
   }, [live.point, tripStatus]);
 
-  // Re-attach background tracking at root (not only Trip tab) after cold-start
-  // recovery stops any leftover FGS. Only start while foregrounded.
+  // Re-attach background tracking at root after cold-start FGS recovery, and
+  // when returning to foreground. startBackgroundUpdates is serialized so this
+  // cannot race Start trip / Resume. Only start while the app is foregrounded —
+  // starting an Android FGS from the background crashes the process.
   useEffect(() => {
     if (!hydrated || tripStatus !== 'active') return;
-    if (AppState.currentState !== 'active') return;
 
-    startBackgroundUpdates().catch(() => undefined);
+    const tryStart = () => {
+      if (AppState.currentState !== 'active') return;
+      if (useTripStore.getState().status !== 'active') return;
+      startBackgroundUpdates().catch(() => undefined);
+    };
+
+    tryStart();
 
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active' && useTripStore.getState().status === 'active') {
-        startBackgroundUpdates().catch(() => undefined);
-      }
+      if (next === 'active') tryStart();
     });
     return () => sub.remove();
   }, [hydrated, tripStatus]);

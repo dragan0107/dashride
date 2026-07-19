@@ -107,71 +107,115 @@ export async function requestBackgroundPermission(): Promise<boolean> {
 }
 
 /**
- * Always stop native location updates on cold start.
- * After Android kills the process on a permission change, a leftover
- * foreground-service registration is a common crash-on-launch loop;
- * active trips re-attach from JS once the UI is foregrounded.
+ * Serialize every start/stop/recover against the same native task.
+ * Concurrent startLocationUpdatesAsync (e.g. Start trip + LocationProvider
+ * re-attach + AppState) races Android's location FGS and crashes the process
+ * — especially after Stop → Reset → Start while Always permission is granted.
  */
-export async function recoverOrphanedLocationUpdates(): Promise<void> {
+let locationUpdatesChain: Promise<void> = Promise.resolve();
+
+function enqueueLocationUpdatesOp<T>(op: () => Promise<T>): Promise<T> {
+  const run = locationUpdatesChain.then(op, op);
+  locationUpdatesChain = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const LOCATION_UPDATE_OPTIONS: Location.LocationTaskOptions = {
+  accuracy: Location.Accuracy.High,
+  timeInterval: 2000,
+  distanceInterval: 5,
+  deferredUpdatesInterval: 5000,
+  showsBackgroundLocationIndicator: true,
+  foregroundService: {
+    notificationTitle: 'DashRide',
+    notificationBody: 'Tracking your trip in the background',
+    notificationColor: '#2DD4BF',
+  },
+  pausesUpdatesAutomatically: false,
+  activityType: Location.ActivityType.AutomotiveNavigation,
+};
+
+async function forceStopLocationUpdates(): Promise<void> {
   try {
     const started = await Location.hasStartedLocationUpdatesAsync(
       BACKGROUND_LOCATION_TASK,
     );
     if (!started) return;
     await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+    // Let Android tear down the FGS/notification before a restart.
+    if (Platform.OS === 'android') {
+      await delay(300);
+    }
   } catch (e) {
-    console.warn('Failed to recover orphaned location updates', e);
+    console.warn('Failed to stop background location updates', e);
     try {
       await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      if (Platform.OS === 'android') {
+        await delay(300);
+      }
     } catch {
       // ignore
     }
   }
 }
 
+/**
+ * Always stop native location updates on cold start.
+ * After Android kills the process on a permission change, a leftover
+ * foreground-service registration is a common crash-on-launch loop;
+ * active trips re-attach from JS once the UI is foregrounded.
+ */
+export async function recoverOrphanedLocationUpdates(): Promise<void> {
+  return enqueueLocationUpdatesOp(async () => {
+    await forceStopLocationUpdates();
+  });
+}
+
 export async function startBackgroundUpdates(): Promise<void> {
-  const fg = await Location.getForegroundPermissionsAsync();
-  if (fg.status !== Location.PermissionStatus.GRANTED) {
-    throw new Error('Foreground location permission is required');
-  }
+  return enqueueLocationUpdatesOp(async () => {
+    const fg = await Location.getForegroundPermissionsAsync();
+    if (fg.status !== Location.PermissionStatus.GRANTED) {
+      throw new Error('Foreground location permission is required');
+    }
 
-  const bg = await Location.getBackgroundPermissionsAsync();
-  if (bg.status !== Location.PermissionStatus.GRANTED) {
-    throw new Error('Background location permission is required');
-  }
+    const bg = await Location.getBackgroundPermissionsAsync();
+    if (bg.status !== Location.PermissionStatus.GRANTED) {
+      throw new Error('Background location permission is required');
+    }
 
-  await ensureNotificationPermission();
+    await ensureNotificationPermission();
 
-  const started = await Location.hasStartedLocationUpdatesAsync(
-    BACKGROUND_LOCATION_TASK,
-  );
-  if (started) return;
+    const started = await Location.hasStartedLocationUpdatesAsync(
+      BACKGROUND_LOCATION_TASK,
+    );
+    if (started) return;
 
-  await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-    accuracy: Location.Accuracy.High,
-    timeInterval: 2000,
-    distanceInterval: 5,
-    deferredUpdatesInterval: 5000,
-    showsBackgroundLocationIndicator: true,
-    foregroundService: {
-      notificationTitle: 'DashRide',
-      notificationBody: 'Tracking your trip in the background',
-      notificationColor: '#2DD4BF',
-    },
-    pausesUpdatesAutomatically: false,
-    activityType: Location.ActivityType.AutomotiveNavigation,
+    try {
+      await Location.startLocationUpdatesAsync(
+        BACKGROUND_LOCATION_TASK,
+        LOCATION_UPDATE_OPTIONS,
+      );
+    } catch (e) {
+      // Half-torn-down FGS after stop/reset: clear and retry once.
+      console.warn('Background location start failed, retrying after stop', e);
+      await forceStopLocationUpdates();
+      await Location.startLocationUpdatesAsync(
+        BACKGROUND_LOCATION_TASK,
+        LOCATION_UPDATE_OPTIONS,
+      );
+    }
   });
 }
 
 export async function stopBackgroundUpdates(): Promise<void> {
-  try {
-    const started = await Location.hasStartedLocationUpdatesAsync(
-      BACKGROUND_LOCATION_TASK,
-    );
-    if (started) {
-      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
-    }
-  } catch (e) {
-    console.warn('Failed to stop background location updates', e);
-  }
+  return enqueueLocationUpdatesOp(async () => {
+    await forceStopLocationUpdates();
+  });
 }
